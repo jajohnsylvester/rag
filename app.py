@@ -16,7 +16,7 @@ st.sidebar.header("Connection Settings")
 KAGGLE_NGROK_URL = st.sidebar.text_input(
     "Enter Kaggle Ngrok URL:", 
     value="",
-    placeholder="https://xxxx-xx-xx-xxx-xx.ngrok-free.app"
+    placeholder="https://evident-lens-surpass.ngrok-free.dev"
 )
 SELECTED_MODEL = "llama3.2"
 

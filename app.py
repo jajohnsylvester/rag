@@ -7,7 +7,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 
-# --- 1. CONFIGURATION ---
+# --- 1. CONFIGURATION & UI LAYOUT ---
 st.set_page_config(page_title="Kaggle-Ollama RAG App", layout="wide")
 st.title("📚 Streamlit RAG connected to Kaggle Ollama")
 
@@ -16,27 +16,22 @@ st.sidebar.header("Connection Settings")
 KAGGLE_NGROK_URL = st.sidebar.text_input(
     "Enter Kaggle Ngrok URL:", 
     value="",
-    placeholder="https://evident-lens-surpass.ngrok-free.dev"
+    placeholder="https://xxxx-xx-xx-xxx-xx.ngrok-free.app"
 )
 SELECTED_MODEL = "llama3.2"
 
-# --- 2. INITIALIZE EMBEDDINGS & LLM ---
-# We cache the embedding model so Render doesn't reload it on every user click
+# --- 2. CACHED EMBEDDINGS ---
 @st.cache_resource
 def load_local_embeddings():
     # Uses a highly efficient, small local model to create vectors on Render's CPU
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-if KAGGLE_NGROK_URL:
-    llm = Ollama(base_url=KAGGLE_NGROK_URL, model=SELECTED_MODEL)
-    embeddings = load_local_embeddings()
-else:
-    st.info("💡 Please enter your live Kaggle Ngrok public URL in the sidebar to connect to the LLM.")
-    st.stop()
+embeddings = load_local_embeddings()
 
-# --- 3. FILE UPLOADER & PROCESSING ---
+# --- 3. FILE UPLOADER (Always Visible Now) ---
 uploaded_file = st.file_uploader("Upload a PDF document to query", type=["pdf"])
 
+# --- 4. DOCUMENT PROCESSING ---
 if uploaded_file is not None and "vector_store" not in st.session_state:
     with st.spinner("Processing document... Parsing and embedding locally on Render."):
         # Securely write uploaded file to Render's temp directory
@@ -63,41 +58,49 @@ if uploaded_file is not None and "vector_store" not in st.session_state:
             if os.path.exists(tmp_file_path):
                 os.remove(tmp_file_path)
 
-# --- 4. QA INTERFACE ---
+# --- 5. QA INTERFACE & LLM GATE ---
 if "vector_store" in st.session_state:
     st.write("---")
     user_query = st.text_input("Ask something about your document:")
     
     if user_query:
-        with st.spinner("Searching document and querying Kaggle LLM..."):
-            # Retrieve top 3 relevant chunks
-            retriever = st.session_state.vector_store.as_retriever(search_kwargs={"k": 3})
-            relevant_docs = retriever.invoke(user_query)
-            
-            context = "\n\n".join([doc.page_content for doc in relevant_docs])
-            
-            rag_prompt = f"""
-            You are a helpful assistant. Use the following pieces of retrieved context to answer the question. 
-            If you don't know the answer, say that you don't know.
-            
-            Context:
-            {context}
-            
-            Question: 
-            {user_query}
-            
-            Answer:
-            """
-            
-            try:
-                # Direct API call to Kaggle via Ngrok
-                response = llm.invoke(rag_prompt)
-                st.markdown("### 🤖 Answer:")
-                st.write(response)
-                
-                with st.expander("View Retrieved Source Chunks"):
-                    for i, doc in enumerate(relevant_docs):
-                        st.markdown(f"**Chunk {i+1}:**")
-                        st.caption(doc.page_content)
-            except Exception as e:
-                st.error(f"Failed to communicate with Kaggle Ollama instance. Check your Ngrok URL. Error: {e}")
+        # CRITICAL CHECK: Ensure the URL exists right before invoking the LLM
+        if not KAGGLE_NGROK_URL:
+            st.error("❌ Cannot generate answer: Please enter your live Kaggle Ngrok public URL in the sidebar.")
+        else:
+            with st.spinner("Searching document and querying Kaggle LLM..."):
+                try:
+                    # Initialize LLM dynamically with the current URL input
+                    llm = Ollama(base_url=KAGGLE_NGROK_URL, model=SELECTED_MODEL)
+                    
+                    # Retrieve top 3 relevant chunks
+                    retriever = st.session_state.vector_store.as_retriever(search_kwargs={"k": 3})
+                    relevant_docs = retriever.invoke(user_query)
+                    
+                    context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                    
+                    rag_prompt = f"""
+                    You are a helpful assistant. Use the following pieces of retrieved context to answer the question. 
+                    If you don't know the answer, say that you don't know.
+                    
+                    Context:
+                    {context}
+                    
+                    Question: 
+                    {user_query}
+                    
+                    Answer:
+                    """
+                    
+                    # Direct API call to Kaggle via Ngrok
+                    response = llm.invoke(rag_prompt)
+                    st.markdown("### 🤖 Answer:")
+                    st.write(response)
+                    
+                    with st.expander("View Retrieved Source Chunks"):
+                        for i, doc in enumerate(relevant_docs):
+                            st.markdown(f"**Chunk {i+1}:**")
+                            st.caption(doc.page_content)
+                            
+                except Exception as e:
+                    st.error(f"Failed to communicate with Kaggle Ollama instance. Check your Ngrok URL. Error: {e}")
